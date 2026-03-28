@@ -1,7 +1,8 @@
 // admin-app.js - Panel de administración (VERSIÓN GENÉRICA)
-// SIN NINGÚN NOMBRE DE CLIENTE HARCODEADO
+// CON BOTÓN DE NUEVA RESERVA MANUAL, ENVÍO DE WHATSAPP AL CLIENTE, DÍAS CERRADOS
+// Y VISTA DE CALENDARIO SEMANAL
 
-console.log('🚀 ADMIN-APP.JS - Panel de administración');
+console.log('🚀 ADMIN-APP.JS - Panel de administración con Calendario Semanal');
 
 window.addEventListener('error', function(e) {
     console.error('❌ Error detectado, posible versión antigua:', e.message);
@@ -293,18 +294,101 @@ const indiceToHoraLegible = (indice) => {
 };
 
 // ============================================
+// FUNCIONES PARA CALENDARIO SEMANAL
+// ============================================
+function getWeekDates(baseDate) {
+    const date = new Date(baseDate);
+    const day = date.getDay();
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+    
+    const monday = new Date(date);
+    monday.setDate(date.getDate() + diffToMonday);
+    monday.setHours(0, 0, 0, 0);
+    
+    const weekDates = [];
+    for (let i = 0; i < 7; i++) {
+        const dayDate = new Date(monday);
+        dayDate.setDate(monday.getDate() + i);
+        weekDates.push(dayDate);
+    }
+    return weekDates;
+}
+
+function formatDateShort(date) {
+    return `${date.getDate()}/${date.getMonth() + 1}`;
+}
+
+function formatDateFull(date) {
+    const year = date.getFullYear();
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function getDayName(date) {
+    const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    return days[date.getDay()];
+}
+
+function getDayNameShort(date) {
+    const days = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+    return days[date.getDay()];
+}
+
+function getHoursRange() {
+    const hours = [];
+    for (let i = 9; i <= 20; i++) {
+        hours.push(`${i.toString().padStart(2, '0')}:00`);
+        hours.push(`${i.toString().padStart(2, '0')}:30`);
+    }
+    return hours;
+}
+
+function getBookingsForCell(bookings, dateStr, hourStr, profesionalIdFilter) {
+    return bookings.filter(booking => {
+        if (booking.fecha !== dateStr) return false;
+        if (booking.hora_inicio !== hourStr) return false;
+        if (profesionalIdFilter && booking.profesional_id !== profesionalIdFilter) return false;
+        return true;
+    });
+}
+
+function getEstadoColor(estado) {
+    switch(estado) {
+        case 'Reservado': return 'bg-green-500 text-white';
+        case 'Pendiente': return 'bg-yellow-500 text-white';
+        case 'Completado': return 'bg-gray-400 text-white';
+        case 'Cancelado': return 'bg-red-400 text-white line-through';
+        default: return 'bg-pink-500 text-white';
+    }
+}
+
+function getEstadoIcon(estado) {
+    switch(estado) {
+        case 'Reservado': return '✅';
+        case 'Pendiente': return '💰';
+        case 'Completado': return '✓';
+        case 'Cancelado': return '❌';
+        default: return '📅';
+    }
+}
+
+// ============================================
 // COMPONENTE PRINCIPAL
 // ============================================
 function AdminApp() {
     const [bookings, setBookings] = React.useState([]);
     const [loading, setLoading] = React.useState(true);
-    const [filterDate, setFilterDate] = React.useState('');
     const [statusFilter, setStatusFilter] = React.useState('activas');
+    const [vistaCalendario, setVistaCalendario] = React.useState('semana');
+    const [fechaActual, setFechaActual] = React.useState(new Date());
+    const [profesionalFiltro, setProfesionalFiltro] = React.useState(null);
     
     const [userRole, setUserRole] = React.useState('admin');
     const [userNivel, setUserNivel] = React.useState(3);
     const [profesional, setProfesional] = React.useState(null);
     const [nombreNegocio, setNombreNegocio] = React.useState('Mi Negocio');
+    const [logoNegocio, setLogoNegocio] = React.useState(null);
     
     const [config, setConfig] = React.useState(null);
     const [configVersion, setConfigVersion] = React.useState(0);
@@ -323,8 +407,11 @@ function AdminApp() {
         servicio: '',
         profesional_id: '',
         fecha: '',
-        hora_inicio: ''
+        hora_inicio: '',
+        requiereAnticipo: false
     });
+    
+    const [diasCerradosFechas, setDiasCerradosFechas] = React.useState([]);
 
     const [serviciosList, setServiciosList] = React.useState([]);
     const [profesionalesList, setProfesionalesList] = React.useState([]);
@@ -334,7 +421,7 @@ function AdminApp() {
     const [fechasConHorarios, setFechasConHorarios] = React.useState({});
 
     // ============================================
-    // CARGAR NOMBRE DEL NEGOCIO Y CONFIGURACIÓN
+    // CARGAR CONFIGURACIÓN Y LOGO
     // ============================================
     React.useEffect(() => {
         window.getNombreNegocio().then(nombre => {
@@ -351,6 +438,9 @@ function AdminApp() {
             if (configData?.nombre) {
                 setNombreNegocio(configData.nombre);
             }
+            if (configData?.logo_url) {
+                setLogoNegocio(configData.logo_url);
+            }
             console.log('✅ Configuración recargada:', configData);
         } catch (error) {
             console.error('Error cargando config:', error);
@@ -358,7 +448,7 @@ function AdminApp() {
     };
 
     // ============================================
-    // DETECTAR ROL Y NIVEL DEL USUARIO AL INICIAR
+    // DETECTAR ROL DEL USUARIO
     // ============================================
     React.useEffect(() => {
         const profesionalAuth = window.getProfesionalAutenticado?.();
@@ -367,6 +457,7 @@ function AdminApp() {
             setUserRole('profesional');
             setProfesional(profesionalAuth);
             setUserNivel(profesionalAuth.nivel || 1);
+            setProfesionalFiltro(profesionalAuth.id);
             
             setNuevaReservaData(prev => ({
                 ...prev,
@@ -399,7 +490,6 @@ function AdminApp() {
                 try {
                     const horarios = await window.salonConfig.getHorariosProfesional(nuevaReservaData.profesional_id);
                     setDiasLaborales(horarios.dias || []);
-                    
                     await cargarDisponibilidadMes(currentDate, nuevaReservaData.profesional_id);
                 } catch (error) {
                     console.error('Error cargando días laborales:', error);
@@ -409,6 +499,18 @@ function AdminApp() {
         };
         cargarDiasLaborales();
     }, [nuevaReservaData.profesional_id]);
+
+    React.useEffect(() => {
+        if (showNuevaReservaModal) {
+            const cargarDiasCerrados = async () => {
+                if (window.getDiasCerradosFechas) {
+                    const fechas = await window.getDiasCerradosFechas();
+                    setDiasCerradosFechas(fechas);
+                }
+            };
+            cargarDiasCerrados();
+        }
+    }, [showNuevaReservaModal]);
 
     React.useEffect(() => {
         const cargarHorarios = async () => {
@@ -600,6 +702,11 @@ function AdminApp() {
         if (!date || !nuevaReservaData.profesional_id) return false;
         
         const fechaStr = formatDate(date);
+        
+        if (diasCerradosFechas.includes(fechaStr)) {
+            return false;
+        }
+        
         const diaSemana = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'][date.getDay()];
         
         if (diasLaborales.length > 0 && !diasLaborales.includes(diaSemana)) {
@@ -616,6 +723,9 @@ function AdminApp() {
         }
     };
 
+    // ============================================
+    // FUNCIÓN CORREGIDA: CREAR RESERVA MANUAL CON OPCIÓN DE ANTICIPO
+    // ============================================
     const handleCrearReservaManual = async () => {
         if (!nuevaReservaData.cliente_nombre || !nuevaReservaData.cliente_whatsapp || 
             !nuevaReservaData.servicio || !nuevaReservaData.profesional_id || 
@@ -638,6 +748,8 @@ function AdminApp() {
             }
             
             const endTime = calculateEndTime(nuevaReservaData.hora_inicio, servicio.duracion);
+            const configNegocio = await window.cargarConfiguracionNegocio();
+            const requiereAnticipo = nuevaReservaData.requiereAnticipo;
             
             const bookingData = {
                 cliente_nombre: nuevaReservaData.cliente_nombre,
@@ -649,15 +761,41 @@ function AdminApp() {
                 fecha: nuevaReservaData.fecha,
                 hora_inicio: nuevaReservaData.hora_inicio,
                 hora_fin: endTime,
-                estado: "Reservado"
+                estado: requiereAnticipo ? "Pendiente" : "Reservado"
             };
 
-            console.log('📤 Creando reserva manual:', bookingData);
+            console.log('📤 Creando reserva manual. Requiere anticipo:', requiereAnticipo);
+            console.log('📤 Estado:', bookingData.estado);
             
             const result = await createBooking(bookingData);
             
-            if (result.success) {
-                alert('✅ Reserva creada exitosamente');
+            if (result.success && result.data) {
+                alert(`✅ Reserva creada exitosamente como "${result.data.estado}"`);
+                
+                console.log('📱 Enviando mensaje al cliente...');
+                
+                try {
+                    if (requiereAnticipo) {
+                        if (window.enviarMensajePago) {
+                            await window.enviarMensajePago(result.data, configNegocio);
+                            console.log('✅ Mensaje con datos de pago enviado al cliente');
+                        } else {
+                            console.warn('⚠️ window.enviarMensajePago no está disponible');
+                            alert('⚠️ Reserva creada pero no se pudo enviar mensaje de pago.');
+                        }
+                    } else {
+                        if (window.enviarConfirmacionReserva) {
+                            await window.enviarConfirmacionReserva(result.data, configNegocio);
+                            console.log('✅ Confirmación de turno enviada al cliente');
+                        } else {
+                            console.warn('⚠️ window.enviarConfirmacionReserva no está disponible');
+                            alert('⚠️ Reserva creada pero no se pudo enviar confirmación.');
+                        }
+                    }
+                } catch (whatsappError) {
+                    console.error('❌ Error enviando WhatsApp:', whatsappError);
+                    alert('⚠️ Reserva creada, pero hubo un error al enviar el mensaje al cliente.');
+                }
                 
                 setShowNuevaReservaModal(false);
                 setNuevaReservaData({
@@ -666,10 +804,13 @@ function AdminApp() {
                     servicio: '',
                     profesional_id: userRole === 'profesional' ? profesional?.id : '',
                     fecha: '',
-                    hora_inicio: ''
+                    hora_inicio: '',
+                    requiereAnticipo: false
                 });
                 
                 fetchBookings();
+            } else {
+                alert('❌ Error al crear la reserva: ' + (result.error || 'Error desconocido'));
             }
         } catch (error) {
             console.error('Error creando reserva:', error);
@@ -889,7 +1030,7 @@ Cualquier cambio, podés cancelarlo desde la app con hasta 1 hora de anticipaci�
             }
             
             alert(`✅ Se borraron todas las reservas canceladas correctamente`);
-            fetchBookings(); // Recargar la lista
+            fetchBookings();
             
         } catch (error) {
             console.error('Error:', error);
@@ -931,49 +1072,58 @@ Cualquier cambio, podés cancelarlo desde la app con hasta 1 hora de anticipaci�
             localStorage.removeItem('negocioId');
             
             console.log('🚪 Sesión cerrada, redirigiendo a index.html');
-            window.location.href = 'index.html'; // Cambiado de admin-login.html a index.html
+            window.location.href = 'index.html';
         }
     };
 
     // ============================================
-    // FILTROS
+    // FUNCIONES PARA CALENDARIO SEMANAL
     // ============================================
-    const getFilteredBookings = () => {
-        console.log('🔄 Aplicando filtros a', bookings.length, 'reservas');
+    const semanaActual = getWeekDates(fechaActual);
+    const horasDelDia = getHoursRange();
+    
+    const cambiarSemana = (direccion) => {
+        const nuevaFecha = new Date(fechaActual);
+        nuevaFecha.setDate(fechaActual.getDate() + (direccion * 7));
+        setFechaActual(nuevaFecha);
+    };
+    
+    const irAHoy = () => {
+        setFechaActual(new Date());
+    };
+    
+    const getBookingsFiltradas = () => {
+        let filtradas = [...bookings];
         
-        let filtradas = filterDate
-            ? bookings.filter(b => b.fecha === filterDate)
-            : [...bookings];
-        
-        console.log('📊 Después filtro fecha:', filtradas.length);
-        
-        let resultado;
         if (statusFilter === 'activas') {
-            resultado = filtradas.filter(b => b.estado === 'Reservado');
+            filtradas = filtradas.filter(b => b.estado === 'Reservado');
         } else if (statusFilter === 'pendientes') {
-            resultado = filtradas.filter(b => b.estado === 'Pendiente');
+            filtradas = filtradas.filter(b => b.estado === 'Pendiente');
         } else if (statusFilter === 'completadas') {
-            resultado = filtradas.filter(b => b.estado === 'Completado');
+            filtradas = filtradas.filter(b => b.estado === 'Completado');
         } else if (statusFilter === 'canceladas') {
-            resultado = filtradas.filter(b => b.estado === 'Cancelado');
-        } else {
-            resultado = filtradas;
+            filtradas = filtradas.filter(b => b.estado === 'Cancelado');
         }
         
-        console.log('📊 Resultado final:', resultado.length);
-        
-        return resultado;
+        return filtradas;
     };
 
     const activasCount = bookings.filter(b => b.estado === 'Reservado').length;
     const pendientesCount = bookings.filter(b => b.estado === 'Pendiente').length;
     const completadasCount = bookings.filter(b => b.estado === 'Completado').length;
     const canceladasCount = bookings.filter(b => b.estado === 'Cancelado').length;
-    const filteredBookings = getFilteredBookings();
+    const bookingsFiltradas = getBookingsFiltradas();
 
+    // ============================================
+    // PESTAÑAS
+    // ============================================
     const getTabsDisponibles = () => {
         const tabs = [];
         tabs.push({ id: 'reservas', icono: '📅', label: userRole === 'profesional' ? 'Mis Reservas' : 'Reservas' });
+        
+        if (userRole === 'admin' || (userRole === 'profesional' && userNivel >= 3)) {
+            tabs.push({ id: 'diasCerrados', icono: '🚫', label: 'Días Cerrados' });
+        }
         
         if (userRole === 'admin' || (userRole === 'profesional' && userNivel >= 2)) {
             tabs.push({ id: 'configuracion', icono: '⚙️', label: 'Configuración' });
@@ -995,7 +1145,8 @@ Cualquier cambio, podés cancelarlo desde la app con hasta 1 hora de anticipaci�
             servicio: '',
             profesional_id: userRole === 'profesional' ? profesional?.id : '',
             fecha: '',
-            hora_inicio: ''
+            hora_inicio: '',
+            requiereAnticipo: false
         });
         setCurrentDate(new Date());
         setDiasLaborales([]);
@@ -1009,26 +1160,46 @@ Cualquier cambio, podés cancelarlo desde la app con hasta 1 hora de anticipaci�
 
     return (
         <div className="min-h-screen bg-pink-50 p-3 sm:p-6">
-            <div className="max-w-6xl mx-auto space-y-4">
+            <div className="max-w-7xl mx-auto space-y-4">
                 
-                {/* HEADER */}
+                {/* HEADER CON LOGO */}
                 <div className="bg-white p-4 rounded-xl shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-l-4 border-pink-500">
-                    {/* Título y logo */}
                     <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-gradient-to-br from-pink-500 to-pink-600 rounded-xl shadow-lg flex items-center justify-center transform rotate-3 hover:rotate-0 transition-transform">
-                            <span className="text-2xl text-white">
-                                {config?.especialidad?.toLowerCase().includes('uñas') ? '💅' : 
-                                 config?.especialidad?.toLowerCase().includes('pelo') ? '💇‍♀️' : '💖'}
-                            </span>
-                        </div>
+                        {/* 🔥 LOGO DEL NEGOCIO */}
+                        {logoNegocio ? (
+                            <img 
+                                src={logoNegocio} 
+                                alt={nombreNegocio} 
+                                className="w-12 h-12 object-contain rounded-xl shadow-lg ring-2 ring-pink-300 bg-white p-1"
+                                onError={(e) => {
+                                    e.target.onerror = null;
+                                    e.target.style.display = 'none';
+                                    const parent = e.target.parentElement;
+                                    if (parent) {
+                                        parent.innerHTML = '<div class="w-12 h-12 bg-gradient-to-br from-pink-500 to-pink-600 rounded-xl shadow-lg flex items-center justify-center"><span class="text-2xl text-white">💖</span></div>';
+                                    }
+                                }}
+                            />
+                        ) : (
+                            <div className="w-12 h-12 bg-gradient-to-br from-pink-500 to-pink-600 rounded-xl shadow-lg flex items-center justify-center">
+                                <span className="text-2xl text-white">💖</span>
+                            </div>
+                        )}
                         <div>
                             <h1 className="text-xl font-bold text-pink-800">{nombreNegocio}</h1>
                             <p className="text-xs text-pink-500">Panel de Administración</p>
                         </div>
                     </div>
 
-                    {/* Botones de acción */}
                     <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                        <button
+                            onClick={abrirModalNuevaReserva}
+                            className="flex items-center gap-2 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white px-4 py-2 rounded-lg transition-all transform hover:scale-105 shadow-md border border-green-400 flex-1 sm:flex-none justify-center"
+                        >
+                            <span className="text-lg">📅</span>
+                            <span className="font-medium">Nueva Reserva</span>
+                        </button>
+
                         <button
                             onClick={() => window.location.href = 'editar-negocio.html'}
                             className="flex items-center gap-2 bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 text-white px-4 py-2 rounded-lg transition-all transform hover:scale-105 shadow-md border border-pink-400 flex-1 sm:flex-none justify-center"
@@ -1066,7 +1237,7 @@ Cualquier cambio, podés cancelarlo desde la app con hasta 1 hora de anticipaci�
                     </div>
                 </div>
 
-                {/* MODAL NUEVA RESERVA */}
+                {/* MODAL NUEVA RESERVA COMPLETO */}
                 {showNuevaReservaModal && (
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
                         <div className="bg-white rounded-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
@@ -1150,6 +1321,25 @@ Cualquier cambio, podés cancelarlo desde la app con hasta 1 hora de anticipaci�
                                     )}
                                 </div>
 
+                                {/* CHECKBOX PARA ELEGIR SI REQUIERE ANTICIPO */}
+                                {userRole === 'admin' && (
+                                    <div className="flex items-center gap-3 bg-yellow-50 p-3 rounded-lg border border-yellow-200">
+                                        <input
+                                            type="checkbox"
+                                            id="requiereAnticipo"
+                                            checked={nuevaReservaData.requiereAnticipo}
+                                            onChange={(e) => setNuevaReservaData({...nuevaReservaData, requiereAnticipo: e.target.checked})}
+                                            className="w-5 h-5 text-yellow-600 rounded focus:ring-yellow-500"
+                                        />
+                                        <label htmlFor="requiereAnticipo" className="text-sm font-medium text-yellow-800">
+                                            💰 Requerir anticipo al cliente
+                                        </label>
+                                        <div className="text-xs text-yellow-600 ml-auto">
+                                            {nuevaReservaData.requiereAnticipo ? '⚠️ Cliente deberá pagar para confirmar' : '✅ Reserva confirmada automáticamente'}
+                                        </div>
+                                    </div>
+                                )}
+
                                 {nuevaReservaData.profesional_id && (
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-2">Fecha *</label>
@@ -1172,6 +1362,7 @@ Cualquier cambio, podés cancelarlo desde la app con hasta 1 hora de anticipaci�
                                                         const fechaStr = formatDate(date);
                                                         const available = isDateAvailable(date);
                                                         const selected = nuevaReservaData.fecha === fechaStr;
+                                                        const esCerrado = diasCerradosFechas.includes(fechaStr);
                                                         
                                                         let className = "h-10 w-full flex items-center justify-center rounded-lg text-sm font-medium transition-all relative";
                                                         
@@ -1183,20 +1374,38 @@ Cualquier cambio, podés cancelarlo desde la app con hasta 1 hora de anticipaci�
                                                             className += " text-gray-700 hover:bg-pink-50 hover:text-pink-600 hover:scale-105 cursor-pointer";
                                                         }
                                                         
+                                                        let title = "";
+                                                        if (esCerrado) {
+                                                            title = "🚫 Día cerrado (feriado/vacaciones)";
+                                                        } else if (!available) {
+                                                            title = "No disponible (día no laborable o sin horarios)";
+                                                        } else {
+                                                            title = "Disponible";
+                                                        }
+                                                        
                                                         return (
                                                             <button
                                                                 key={idx}
                                                                 onClick={() => handleDateSelect(date)}
                                                                 disabled={!available}
                                                                 className={className}
+                                                                title={title}
                                                             >
                                                                 {date.getDate()}
+                                                                {esCerrado && (
+                                                                    <span className="absolute top-0 right-0 text-[10px] text-red-500">🚫</span>
+                                                                )}
                                                             </button>
                                                         );
                                                     })}
                                                 </div>
                                             </div>
                                         </div>
+                                        {diasCerradosFechas.length > 0 && (
+                                            <p className="text-xs text-red-500 mt-1">
+                                                🚫 {diasCerradosFechas.length} día(s) cerrado(s) este mes
+                                            </p>
+                                        )}
                                     </div>
                                 )}
 
@@ -1255,7 +1464,215 @@ Cualquier cambio, podés cancelarlo desde la app con hasta 1 hora de anticipaci�
                     ))}
                 </div>
 
-                {/* CONTENIDO */}
+                {/* CONTENIDO - RESERVAS CON CALENDARIO SEMANAL */}
+                {tabActivo === 'reservas' && (
+                    <>
+                        {/* Filtros superiores */}
+                        <div className="bg-white p-4 rounded-xl shadow-sm space-y-4">
+                            {/* Filtro de profesional */}
+                            {userRole === 'admin' && profesionalesList.length > 0 && (
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <label className="text-sm font-medium text-gray-700">👩‍🎨 Profesional:</label>
+                                    <select
+                                        value={profesionalFiltro || ''}
+                                        onChange={(e) => setProfesionalFiltro(e.target.value || null)}
+                                        className="border rounded-lg px-3 py-2 text-sm"
+                                    >
+                                        <option value="">Todos los profesionales</option>
+                                        {profesionalesList.map(p => (
+                                            <option key={p.id} value={p.id}>{p.nombre}</option>
+                                        ))}
+                                    </select>
+                                    {profesionalFiltro && (
+                                        <button 
+                                            onClick={() => setProfesionalFiltro(null)}
+                                            className="text-xs text-pink-500 hover:text-pink-700"
+                                        >
+                                            Limpiar filtro ✕
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Navegación del calendario */}
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="flex gap-2">
+                                    <button 
+                                        onClick={() => cambiarSemana(-1)} 
+                                        className="px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm transition"
+                                    >
+                                        ◀ Semana anterior
+                                    </button>
+                                    <button 
+                                        onClick={irAHoy} 
+                                        className="px-3 py-2 bg-pink-100 text-pink-700 rounded-lg hover:bg-pink-200 text-sm transition"
+                                    >
+                                        📅 Hoy
+                                    </button>
+                                    <button 
+                                        onClick={() => cambiarSemana(1)} 
+                                        className="px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm transition"
+                                    >
+                                        Semana siguiente ▶
+                                    </button>
+                                </div>
+                                <div className="text-lg font-semibold text-pink-700">
+                                    {semanaActual[0].toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })} - {semanaActual[6].toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}
+                                </div>
+                                <div className="flex gap-2 flex-wrap">
+                                    <button 
+                                        onClick={() => setStatusFilter('activas')} 
+                                        className={`px-3 py-2 rounded-lg text-sm font-medium transition ${statusFilter === 'activas' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-700'}`}
+                                    >
+                                        Activas ({activasCount})
+                                    </button>
+                                    <button 
+                                        onClick={() => setStatusFilter('pendientes')} 
+                                        className={`px-3 py-2 rounded-lg text-sm font-medium transition ${statusFilter === 'pendientes' ? 'bg-yellow-500 text-white' : 'bg-gray-100 text-gray-700'}`}
+                                    >
+                                        Pendientes ({pendientesCount})
+                                    </button>
+                                    <button 
+                                        onClick={() => setStatusFilter('completadas')} 
+                                        className={`px-3 py-2 rounded-lg text-sm font-medium transition ${statusFilter === 'completadas' ? 'bg-gray-500 text-white' : 'bg-gray-100 text-gray-700'}`}
+                                    >
+                                        Completadas ({completadasCount})
+                                    </button>
+                                    <button 
+                                        onClick={() => setStatusFilter('canceladas')} 
+                                        className={`px-3 py-2 rounded-lg text-sm font-medium transition ${statusFilter === 'canceladas' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-700'}`}
+                                    >
+                                        Canceladas ({canceladasCount})
+                                    </button>
+                                    <button 
+                                        onClick={() => setStatusFilter('todas')} 
+                                        className={`px-3 py-2 rounded-lg text-sm font-medium transition ${statusFilter === 'todas' ? 'bg-pink-500 text-white' : 'bg-gray-100 text-gray-700'}`}
+                                    >
+                                        Todas ({bookings.length})
+                                    </button>
+                                    
+                                    {statusFilter === 'canceladas' && (
+                                        <button
+                                            onClick={borrarCanceladas}
+                                            className="px-3 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-800 transition"
+                                        >
+                                            🗑️ Borrar todas
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* CALENDARIO SEMANAL */}
+                        {loading ? (
+                            <div className="text-center py-12 bg-white rounded-xl">
+                                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-500 mx-auto"></div>
+                                <p className="text-pink-500 mt-4">Cargando reservas...</p>
+                            </div>
+                        ) : (
+                            <div className="bg-white rounded-xl shadow-sm overflow-x-auto">
+                                <div className="min-w-[800px]">
+                                    {/* Cabecera con días */}
+                                    <div className="grid grid-cols-8 border-b bg-gray-50 sticky top-0">
+                                        <div className="p-3 text-center text-sm font-semibold text-gray-600 border-r">Hora</div>
+                                        {semanaActual.map((date, idx) => {
+                                            const dateStr = formatDateFull(date);
+                                            const isToday = dateStr === getCurrentLocalDate();
+                                            const esDiaCerrado = diasCerradosFechas.includes(dateStr);
+                                            return (
+                                                <div key={idx} className={`p-3 text-center border-r ${isToday ? 'bg-pink-100' : ''} ${esDiaCerrado ? 'bg-red-50' : ''}`}>
+                                                    <div className="font-bold text-pink-700">{getDayNameShort(date)}</div>
+                                                    <div className="text-sm text-gray-600">{date.getDate()}</div>
+                                                    {esDiaCerrado && (
+                                                        <div className="text-[10px] text-red-500 mt-1">Cerrado</div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    
+                                    {/* Filas de horas */}
+                                    {horasDelDia.map(hora => (
+                                        <div key={hora} className="grid grid-cols-8 border-b hover:bg-gray-50 transition">
+                                            <div className="p-2 text-sm font-medium text-gray-600 border-r text-center bg-gray-50">
+                                                {formatTo12Hour(hora)}
+                                            </div>
+                                            {semanaActual.map((date, idx) => {
+                                                const dateStr = formatDateFull(date);
+                                                const esDiaCerrado = diasCerradosFechas.includes(dateStr);
+                                                const reservasEnCelda = getBookingsForCell(bookingsFiltradas, dateStr, hora, profesionalFiltro);
+                                                
+                                                if (esDiaCerrado) {
+                                                    return (
+                                                        <div key={idx} className="p-1 border-r min-h-[80px] bg-red-50/30">
+                                                            <div className="text-center text-xs text-red-400 py-6">
+                                                                🚫 Cerrado
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                }
+                                                
+                                                return (
+                                                    <div key={idx} className="p-1 border-r min-h-[80px]">
+                                                        {reservasEnCelda.map(booking => (
+                                                            <div 
+                                                                key={booking.id} 
+                                                                className={`${getEstadoColor(booking.estado)} rounded-lg p-2 mb-1 text-xs cursor-pointer hover:opacity-80 transition-all shadow-sm`}
+                                                                onClick={() => {
+                                                                    if (booking.estado === 'Pendiente') {
+                                                                        confirmarPago(booking.id, booking);
+                                                                    } else if (booking.estado === 'Reservado') {
+                                                                        handleCancel(booking.id, booking);
+                                                                    } else {
+                                                                        alert(`Cliente: ${booking.cliente_nombre}\nServicio: ${booking.servicio}\nWhatsApp: ${booking.cliente_whatsapp}\nEstado: ${booking.estado}`);
+                                                                    }
+                                                                }}
+                                                                title={booking.estado === 'Pendiente' ? 'Click para confirmar pago' : booking.estado === 'Reservado' ? 'Click para cancelar' : 'Click para ver detalles'}
+                                                            >
+                                                                <div className="font-bold truncate">{booking.cliente_nombre}</div>
+                                                                <div className="truncate text-xs opacity-90">{booking.servicio}</div>
+                                                                <div className="flex items-center gap-1 mt-1">
+                                                                    <span>{getEstadoIcon(booking.estado)}</span>
+                                                                    <span className="text-xs">
+                                                                        {booking.estado === 'Pendiente' ? 'Pagar' : 
+                                                                         booking.estado === 'Reservado' ? 'Cancelar' : 
+                                                                         booking.estado === 'Completado' ? 'Completado' : ''}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                        {reservasEnCelda.length === 0 && (
+                                                            <div className="text-xs text-gray-300 text-center py-2">
+                                                                ─
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Leyenda de colores */}
+                        <div className="bg-white p-3 rounded-xl shadow-sm flex flex-wrap gap-4 text-xs">
+                            <div className="flex items-center gap-2"><div className="w-4 h-4 bg-green-500 rounded"></div><span>Reservado (click para cancelar)</span></div>
+                            <div className="flex items-center gap-2"><div className="w-4 h-4 bg-yellow-500 rounded"></div><span>Pendiente (click para confirmar pago)</span></div>
+                            <div className="flex items-center gap-2"><div className="w-4 h-4 bg-gray-400 rounded"></div><span>Completado</span></div>
+                            <div className="flex items-center gap-2"><div className="w-4 h-4 bg-red-400 rounded"></div><span>Cancelado</span></div>
+                            <div className="flex items-center gap-2"><div className="w-4 h-4 bg-red-100 border border-red-300 rounded"></div><span>Día cerrado (sin reservas)</span></div>
+                        </div>
+                    </>
+                )}
+
+                {/* OTROS PANELES */}
+                {tabActivo === 'diasCerrados' && (userRole === 'admin' || userNivel >= 3) && (
+                    <div className="bg-white rounded-xl shadow-sm p-6">
+                        <p className="text-center text-gray-500">Componente DiasCerradosPanel - Pendiente de implementación</p>
+                    </div>
+                )}
+
                 {tabActivo === 'configuracion' && (
                     <ConfigPanel 
                         profesionalId={userRole === 'profesional' ? profesional?.id : null}
@@ -1272,173 +1689,68 @@ Cualquier cambio, podés cancelarlo desde la app con hasta 1 hora de anticipaci�
                 )}
 
                 {tabActivo === 'clientes' && (userRole === 'admin' || userNivel >= 2) && (
-                    <div className="space-y-4">
-                        {cargandoClientes && (
-                            <div className="bg-pink-50 p-3 rounded-lg flex items-center gap-2">
-                                <div className="animate-spin h-4 w-4 border-2 border-pink-600 border-t-transparent rounded-full"></div>
-                                <span className="text-pink-600">Cargando datos...</span>
-                            </div>
-                        )}
-
-                        {/* CLIENTES REGISTRADOS */}
-                        <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-green-500">
-                            <button
-                                onClick={() => {
-                                    setShowClientesRegistrados(!showClientesRegistrados);
-                                    if (!showClientesRegistrados) loadClientesRegistrados();
+                    <div className="bg-white rounded-xl shadow-sm p-6">
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-xl font-bold flex items-center gap-2">
+                                <span>👥</span>
+                                Clientes Registrados
+                                <span className="text-sm bg-green-100 text-green-700 px-2 py-1 rounded-full">{clientesRegistrados.length}</span>
+                            </h2>
+                            <button 
+                                onClick={() => { 
+                                    setShowClientesRegistrados(!showClientesRegistrados); 
+                                    if (!showClientesRegistrados) loadClientesRegistrados(); 
                                 }}
-                                className="flex items-center justify-between w-full"
+                                className="text-pink-600 text-sm hover:underline"
                             >
-                                <div className="flex items-center gap-2">
-                                    <span>✅</span>
-                                    <span className="font-medium">Clientes Registrados</span>
-                                    <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full">{clientesRegistrados.length}</span>
-                                </div>
-                                <span>{showClientesRegistrados ? '▲' : '▼'}</span>
+                                {showClientesRegistrados ? '▲ Ocultar' : '▼ Mostrar'}
                             </button>
-                            
-                            {showClientesRegistrados && (
-                                <div className="mt-4">
-                                    <div className="space-y-3 max-h-80 overflow-y-auto">
-                                        {clientesRegistrados.length === 0 ? (
-                                            <div className="text-center py-6 text-gray-500">
-                                                <p>No hay clientes registrados</p>
-                                            </div>
-                                        ) : (
-                                            clientesRegistrados.map((cliente, index) => (
-                                                <div key={index} className="bg-green-50 p-4 rounded-lg border border-green-200">
-                                                    <div className="flex justify-between items-start">
-                                                        <div>
-                                                            <p className="font-bold text-gray-800">{cliente.nombre}</p>
-                                                            <p className="text-sm text-gray-600">📱 +{cliente.whatsapp}</p>
-                                                            {cliente.fecha_registro && (
-                                                                <p className="text-xs text-gray-400 mt-1">
-                                                                    📅 Registrado: {new Date(cliente.fecha_registro).toLocaleDateString()}
-                                                                </p>
-                                                            )}
-                                                        </div>
-                                                        {(userRole === 'admin' || userNivel >= 3) && (
-                                                            <button 
-                                                                onClick={() => handleEliminarCliente(cliente.whatsapp)}
-                                                                className="px-3 py-1 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600"
-                                                            >
-                                                                Quitar
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            ))
-                                        )}
-                                    </div>
-                                </div>
-                            )}
                         </div>
-                    </div>
-                )}
-
-                {/* RESERVAS */}
-                {tabActivo === 'reservas' && (
-                    <>
-                        {userRole === 'profesional' && profesional && (
-                            <div className="bg-pink-50 border border-pink-200 rounded-lg p-4">
-                                <p className="text-pink-800 font-medium">
-                                    Hola {profesional.nombre} 👋 - Mostrando tus reservas ({filteredBookings.length})
-                                </p>
+                        
+                        {cargandoClientes && (
+                            <div className="text-center py-8">
+                                <div className="animate-spin h-8 w-8 border-b-2 border-pink-500 mx-auto"></div>
+                                <p className="text-gray-500 mt-2">Cargando...</p>
                             </div>
                         )}
-
-                        <div className="bg-white p-4 rounded-xl shadow-sm space-y-3">
-                            <div className="flex flex-wrap gap-3 items-center">
-                                <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="border rounded-lg px-3 py-2 text-sm" />
-                                {filterDate && <button onClick={() => setFilterDate('')} className="text-pink-500 text-sm">Limpiar filtro</button>}
-                            </div>
-
-                            <div className="flex flex-wrap gap-2 items-center">
-                                <button onClick={() => setStatusFilter('activas')} className={`px-4 py-2 rounded-lg text-sm font-medium ${statusFilter === 'activas' ? 'bg-pink-500 text-white' : 'bg-gray-100 text-gray-700'}`}>Activas ({activasCount})</button>
-                                <button onClick={() => setStatusFilter('pendientes')} className={`px-4 py-2 rounded-lg text-sm font-medium ${statusFilter === 'pendientes' ? 'bg-yellow-500 text-white' : 'bg-gray-100 text-gray-700'}`}>Pendientes ({pendientesCount})</button>
-                                <button onClick={() => setStatusFilter('completadas')} className={`px-4 py-2 rounded-lg text-sm font-medium ${statusFilter === 'completadas' ? 'bg-pink-500 text-white' : 'bg-gray-100 text-gray-700'}`}>Completadas ({completadasCount})</button>
-                                <button onClick={() => setStatusFilter('canceladas')} className={`px-4 py-2 rounded-lg text-sm font-medium ${statusFilter === 'canceladas' ? 'bg-pink-500 text-white' : 'bg-gray-100 text-gray-700'}`}>Canceladas ({canceladasCount})</button>
-                                <button onClick={() => setStatusFilter('todas')} className={`px-4 py-2 rounded-lg text-sm font-medium ${statusFilter === 'todas' ? 'bg-pink-500 text-white' : 'bg-gray-100 text-gray-700'}`}>Todas ({bookings.length})</button>
-                                
-                                {/* 🔥 BOTÓN PARA BORRAR CANCELADAS - SOLO EN PESTAÑA CANCELADAS */}
-                                {statusFilter === 'canceladas' && (
-                                    <button
-                                        onClick={borrarCanceladas}
-                                        className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-800 transition flex items-center gap-2"
-                                        title="Borrar todas las reservas canceladas"
-                                    >
-                                        <span>🗑️</span>
-                                        Borrar todas
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-
-                        {loading ? (
-                            <div className="text-center py-12">
-                                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-500 mx-auto"></div>
-                                <p className="text-pink-500 mt-4">Cargando reservas...</p>
-                            </div>
-                        ) : (
-                            <div className="space-y-3">
-                                {filteredBookings.length === 0 ? (
-                                    <div className="text-center py-12 bg-white rounded-xl">
-                                        <p className="text-gray-500">No hay reservas para mostrar</p>
+                        
+                        {showClientesRegistrados && !cargandoClientes && (
+                            <div className="space-y-2 max-h-96 overflow-y-auto">
+                                {clientesRegistrados.length === 0 ? (
+                                    <div className="text-center py-8 text-gray-500">
+                                        <p>No hay clientes registrados</p>
                                     </div>
                                 ) : (
-                                    filteredBookings.map(b => (
-                                        <div key={b.id} className={`bg-white p-4 rounded-xl shadow-sm border-l-4 ${
-                                            b.estado === 'Reservado' ? 'border-l-pink-500' :
-                                            b.estado === 'Pendiente' ? 'border-l-yellow-500' :
-                                            b.estado === 'Completado' ? 'border-l-green-500' :
-                                            'border-l-red-500'
-                                        }`}>
-                                            <div className="flex justify-between mb-2">
-                                                <span className="font-semibold">{window.formatFechaCompleta ? window.formatFechaCompleta(b.fecha) : b.fecha}</span>
-                                                <span className="text-sm bg-pink-100 text-pink-700 px-2 py-1 rounded-full">{formatTo12Hour(b.hora_inicio)}</span>
+                                    clientesRegistrados.map((cliente, idx) => (
+                                        <div key={idx} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
+                                            <div>
+                                                <p className="font-medium text-gray-800">{cliente.nombre}</p>
+                                                <p className="text-sm text-gray-500">📱 +{cliente.whatsapp}</p>
+                                                {cliente.fecha_registro && (
+                                                    <p className="text-xs text-gray-400 mt-1">
+                                                        📅 {new Date(cliente.fecha_registro).toLocaleDateString()}
+                                                    </p>
+                                                )}
                                             </div>
-                                            <div className="text-sm space-y-1">
-                                                <p><span className="font-medium">👤 Cliente:</span> {b.cliente_nombre}</p>
-                                                <p><span className="font-medium">📱 WhatsApp:</span> {b.cliente_whatsapp}</p>
-                                                <p><span className="font-medium">💈 Servicio:</span> {b.servicio}</p>
-                                                <p><span className="font-medium">👩‍🎨 Profesional:</span> {b.profesional_nombre || b.trabajador_nombre}</p>
-                                            </div>
-                                            <div className="flex justify-between items-center mt-3 pt-2 border-t">
-                                                <span className={`px-2 py-1 rounded-full text-xs font-semibold
-                                                    ${b.estado === 'Reservado' ? 'bg-pink-100 text-pink-700' : 
-                                                      b.estado === 'Pendiente' ? 'bg-yellow-100 text-yellow-700' :
-                                                      b.estado === 'Completado' ? 'bg-green-100 text-green-700' : 
-                                                      'bg-red-100 text-red-700'}`}>
-                                                    {b.estado}
-                                                </span>
-                                                <div className="flex gap-2">
-                                                    {b.estado === 'Pendiente' && (
-                                                        <button 
-                                                            onClick={() => confirmarPago(b.id, b)} 
-                                                            className="px-3 py-1 bg-green-500 text-white rounded-lg text-sm hover:bg-green-600 flex items-center gap-1"
-                                                        >
-                                                            <span>✅</span> Confirmar pago
-                                                        </button>
-                                                    )}
-                                                    {b.estado === 'Reservado' && (
-                                                        <button onClick={() => handleCancel(b.id, b)} className="px-3 py-1 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600 flex items-center gap-1">
-                                                            <span>❌</span> Cancelar
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </div>
+                                            {(userRole === 'admin' || userNivel >= 3) && (
+                                                <button 
+                                                    onClick={() => handleEliminarCliente(cliente.whatsapp)}
+                                                    className="px-3 py-1 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600 transition"
+                                                >
+                                                    Quitar
+                                                </button>
+                                            )}
                                         </div>
                                     ))
                                 )}
                             </div>
                         )}
-                    </>
+                    </div>
                 )}
             </div>
         </div>
     );
 }
 
-// Renderizar la aplicación
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<AdminApp />);
