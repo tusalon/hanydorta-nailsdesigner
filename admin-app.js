@@ -546,7 +546,7 @@ function AdminApp() {
                 const totalMinutosActual = horaActual * 60 + minutosActuales;
                 const minAllowedMinutes = totalMinutosActual + 120;
 
-                const hoy = new Date().toISOString().split('T')[0];
+                const hoy = getCurrentLocalDate();
                 const esHoy = nuevaReservaData.fecha === hoy;
 
                 const disponibles = slotsTrabajo.filter(slot => {
@@ -698,21 +698,44 @@ function AdminApp() {
         return `${y}-${m}-${d}`;
     };
 
+    // 🔥 FUNCIÓN COMPLETA DE DISPONIBILIDAD (igual que en el cliente)
     const isDateAvailable = (date) => {
         if (!date || !nuevaReservaData.profesional_id) return false;
         
         const fechaStr = formatDate(date);
         
+        // 1. Verificar si es día cerrado
         if (diasCerradosFechas.includes(fechaStr)) {
             return false;
         }
         
-        const diaSemana = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'][date.getDay()];
+        // 2. Verificar si es fecha pasada
+        const hoy = getCurrentLocalDate();
+        if (fechaStr < hoy) {
+            return false;
+        }
         
+        // 3. Verificar si es hoy y ya pasó la última hora
+        if (fechaStr === hoy) {
+            const ahora = new Date();
+            const horaActual = ahora.getHours();
+            const minutosActuales = ahora.getMinutes();
+            const totalMinutosActual = horaActual * 60 + minutosActuales;
+            const minAllowedMinutes = totalMinutosActual + 120;
+            
+            const ultimaHoraPermitida = 20 * 60; // 20:00
+            if (minAllowedMinutes > ultimaHoraPermitida) {
+                return false;
+            }
+        }
+        
+        // 4. Verificar días laborales del profesional
+        const diaSemana = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'][date.getDay()];
         if (diasLaborales.length > 0 && !diasLaborales.includes(diaSemana)) {
             return false;
         }
         
+        // 5. Verificar si hay horarios disponibles
         return fechasConHorarios[fechaStr] || false;
     };
 
@@ -1363,13 +1386,14 @@ Cualquier cambio, podés cancelarlo desde la app con hasta 1 hora de anticipaci�
                                                         const available = isDateAvailable(date);
                                                         const selected = nuevaReservaData.fecha === fechaStr;
                                                         const esCerrado = diasCerradosFechas.includes(fechaStr);
+                                                        const esPasado = fechaStr < getCurrentLocalDate();
                                                         
                                                         let className = "h-10 w-full flex items-center justify-center rounded-lg text-sm font-medium transition-all relative";
                                                         
                                                         if (selected) {
                                                             className += " bg-pink-500 text-white shadow-md ring-2 ring-pink-300";
-                                                        } else if (!available) {
-                                                            className += " text-gray-300 cursor-not-allowed bg-gray-50";
+                                                        } else if (!available || esPasado || esCerrado) {
+                                                            className += " text-gray-300 cursor-not-allowed bg-gray-50 line-through";
                                                         } else {
                                                             className += " text-gray-700 hover:bg-pink-50 hover:text-pink-600 hover:scale-105 cursor-pointer";
                                                         }
@@ -1377,6 +1401,8 @@ Cualquier cambio, podés cancelarlo desde la app con hasta 1 hora de anticipaci�
                                                         let title = "";
                                                         if (esCerrado) {
                                                             title = "🚫 Día cerrado (feriado/vacaciones)";
+                                                        } else if (esPasado) {
+                                                            title = "📅 Fecha pasada";
                                                         } else if (!available) {
                                                             title = "No disponible (día no laborable o sin horarios)";
                                                         } else {
@@ -1387,13 +1413,16 @@ Cualquier cambio, podés cancelarlo desde la app con hasta 1 hora de anticipaci�
                                                             <button
                                                                 key={idx}
                                                                 onClick={() => handleDateSelect(date)}
-                                                                disabled={!available}
+                                                                disabled={!available || esPasado || esCerrado}
                                                                 className={className}
                                                                 title={title}
                                                             >
                                                                 {date.getDate()}
                                                                 {esCerrado && (
                                                                     <span className="absolute top-0 right-0 text-[10px] text-red-500">🚫</span>
+                                                                )}
+                                                                {esPasado && !esCerrado && (
+                                                                    <span className="absolute top-0 right-0 text-[10px] text-gray-400">📅</span>
                                                                 )}
                                                             </button>
                                                         );
@@ -1668,9 +1697,7 @@ Cualquier cambio, podés cancelarlo desde la app con hasta 1 hora de anticipaci�
 
                 {/* OTROS PANELES */}
                 {tabActivo === 'diasCerrados' && (userRole === 'admin' || userNivel >= 3) && (
-                    <div className="bg-white rounded-xl shadow-sm p-6">
-                        <p className="text-center text-gray-500">Componente DiasCerradosPanel - Pendiente de implementación</p>
-                    </div>
+                    <DiasCerradosPanel />
                 )}
 
                 {tabActivo === 'configuracion' && (
