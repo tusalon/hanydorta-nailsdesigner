@@ -894,68 +894,46 @@ function AdminApp() {
     // ============================================
     // FUNCIONES DE RESERVAS
     // ============================================
-    const fetchBookings = async () => {
-        setLoading(true);
-        try {
-            let data;
+   const fetchBookings = async () => {
+    setLoading(true);
+    try {
+        let data;
+        
+        if (userRole === 'profesional' && profesional) {
+            console.log(`📋 Cargando reservas de profesional ${profesional.id}...`);
+            data = await window.getReservasPorProfesional?.(profesional.id, false) || [];
+        } else {
+            data = await getAllBookings();
+        }
+        
+        if (Array.isArray(data)) {
+            data.sort((a, b) => a.fecha.localeCompare(b.fecha) || a.hora_inicio.localeCompare(b.hora_inicio));
+            
+            await marcarTurnosCompletados();
             
             if (userRole === 'profesional' && profesional) {
-                console.log(`📋 Cargando reservas de profesional ${profesional.id}...`);
                 data = await window.getReservasPorProfesional?.(profesional.id, false) || [];
             } else {
                 data = await getAllBookings();
             }
             
-            if (Array.isArray(data)) {
-                data.sort((a, b) => a.fecha.localeCompare(b.fecha) || a.hora_inicio.localeCompare(b.hora_inicio));
-                
-                await marcarTurnosCompletados();
-                
-                if (userRole === 'profesional' && profesional) {
-                    data = await window.getReservasPorProfesional?.(profesional.id, false) || [];
-                } else {
-                    data = await getAllBookings();
-                }
-                
-                setBookings(Array.isArray(data) ? data : []);
-            } else {
-                setBookings([]);
-            }
-        } catch (error) {
-            console.error('Error fetching bookings:', error);
-            alert('Error al cargar las reservas');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    React.useEffect(() => {
-        const intervalo = setInterval(() => {
-            console.log('⏰ Verificando turnos para completar...');
-            
-            marcarTurnosCompletados().then(() => {
-                fetchBookings();
+            console.log('✅ RESERVAS CARGADAS:', data.length);
+            console.log('📅 Rango de fechas:', {
+                primera: data.length > 0 ? data[data.length-1]?.fecha : 'sin datos',
+                ultima: data.length > 0 ? data[0]?.fecha : 'sin datos'
             });
             
-        }, 60000);
-        
-        return () => clearInterval(intervalo);
-    }, []);
-
-    React.useEffect(() => {
-        fetchBookings();
-        
-        if (userRole === 'admin' || (userRole === 'profesional' && userNivel >= 2)) {
-            loadClientesRegistrados();
+            setBookings(Array.isArray(data) ? data : []);
+        } else {
+            setBookings([]);
         }
-        
-        console.log('🔍 Verificando auth:', {
-            userRole,
-            userNivel,
-            profesional
-        });
-    }, [userRole, userNivel, profesional]);
-
+    } catch (error) {
+        console.error('Error fetching bookings:', error);
+        alert('Error al cargar las reservas');
+    } finally {
+        setLoading(false);
+    }
+};
     // ============================================
     // FUNCIÓN PARA CONFIRMAR PAGO
     // ============================================
@@ -1115,27 +1093,42 @@ Cualquier cambio, podés cancelarlo desde la app con hasta 1 hora de anticipaci�
         setFechaActual(new Date());
     };
     
-    const getBookingsFiltradas = () => {
-        let filtradas = [...bookings];
-        
-        if (statusFilter === 'activas') {
-            filtradas = filtradas.filter(b => b.estado === 'Reservado');
-        } else if (statusFilter === 'pendientes') {
-            filtradas = filtradas.filter(b => b.estado === 'Pendiente');
-        } else if (statusFilter === 'completadas') {
-            filtradas = filtradas.filter(b => b.estado === 'Completado');
-        } else if (statusFilter === 'canceladas') {
-            filtradas = filtradas.filter(b => b.estado === 'Cancelado');
-        }
-        
-        return filtradas;
-    };
+   const getBookingsFiltradas = () => {
+    console.log('🔍 FILTRO APLICADO - statusFilter:', statusFilter);
+    console.log('📊 Total reservas en bookings:', bookings.length);
+    
+    let filtradas = [...bookings];
+    
+    if (statusFilter === 'activas') {
+        filtradas = filtradas.filter(b => b.estado === 'Reservado');
+        console.log('📊 Filtro activas - resultado:', filtradas.length);
+    } else if (statusFilter === 'pendientes') {
+        filtradas = filtradas.filter(b => b.estado === 'Pendiente');
+        console.log('📊 Filtro pendientes - resultado:', filtradas.length);
+    } else if (statusFilter === 'completadas') {
+        filtradas = filtradas.filter(b => b.estado === 'Completado');
+        console.log('📊 Filtro completadas - resultado:', filtradas.length);
+    } else if (statusFilter === 'canceladas') {
+        filtradas = filtradas.filter(b => b.estado === 'Cancelado');
+        console.log('📊 Filtro canceladas - resultado:', filtradas.length);
+    } else if (statusFilter === 'todas') {
+        console.log('📊 Filtro TODAS - resultado:', filtradas.length);
+    }
+    
+    // Mostrar las primeras 3 fechas para verificar
+    if (filtradas.length > 0) {
+        console.log('📋 Ejemplo de fechas filtradas:', filtradas.slice(0, 3).map(b => b.fecha));
+    }
+    
+    return filtradas;
+};
 
     const activasCount = bookings.filter(b => b.estado === 'Reservado').length;
     const pendientesCount = bookings.filter(b => b.estado === 'Pendiente').length;
     const completadasCount = bookings.filter(b => b.estado === 'Completado').length;
     const canceladasCount = bookings.filter(b => b.estado === 'Cancelado').length;
-    const bookingsFiltradas = getBookingsFiltradas();
+   const bookingsFiltradas = getBookingsFiltradas();
+console.log('🎨 RENDER - Reservas filtradas para calendario:', bookingsFiltradas.length);
 
     // ============================================
     // PESTAÑAS
