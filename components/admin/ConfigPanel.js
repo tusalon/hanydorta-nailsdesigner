@@ -1,4 +1,4 @@
-// components/admin/ConfigPanel.js - Versión genérica
+// components/admin/ConfigPanel.js - Versión con Fechas Libres por Profesional
 
 function ConfigPanel({ profesionalId, modoRestringido }) {
     const [profesionales, setProfesionales] = React.useState([]);
@@ -224,56 +224,69 @@ function ConfigPanel({ profesionalId, modoRestringido }) {
                 </div>
             )}
             
-            {!modoRestringido && (
-                <div className="mb-6">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Seleccionar Profesional
-                    </label>
-                    <div className="flex gap-2">
-                        <select
-                            value={profesionalSeleccionado || ''}
-                            onChange={(e) => setProfesionalSeleccionado(parseInt(e.target.value))}
-                            className="flex-1 border rounded-lg px-3 py-2"
-                        >
-                            <option value="">Seleccione un profesional</option>
-                            {profesionales.map(p => (
-                                <option key={p.id} value={p.id}>{p.nombre}</option>
-                            ))}
-                        </select>
-                        
+            {/* SECCIÓN DEL PROFESIONAL */}
+            <div className="mb-6 p-4 border rounded-lg bg-white shadow-sm">
+                <h3 className="font-semibold text-lg mb-4">👥 Configuración del Profesional</h3>
+                {!modoRestringido && (
+                    <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Seleccionar Profesional
+                        </label>
+                        <div className="flex gap-2">
+                            <select
+                                value={profesionalSeleccionado || ''}
+                                onChange={(e) => setProfesionalSeleccionado(parseInt(e.target.value))}
+                                className="flex-1 border rounded-lg px-3 py-2"
+                            >
+                                <option value="">Seleccione un profesional</option>
+                                {profesionales.map(p => (
+                                    <option key={p.id} value={p.id}>{p.nombre}</option>
+                                ))}
+                            </select>
+                            
+                            <button
+                                onClick={abrirEditorPorDia}
+                                disabled={!profesionalSeleccionado}
+                                className="bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Configurar horarios por día
+                            </button>
+                        </div>
+                        {profesionales.length === 0 && !cargando && (
+                            <p className="text-sm text-amber-600 mt-2">
+                                ⚠️ No hay profesionales activos. Ve a la pestaña "Profesionales" para crear uno.
+                            </p>
+                        )}
+                    </div>
+                )}
+                
+                {modoRestringido && profesionalId && (
+                    <div className="mb-4">
                         <button
                             onClick={abrirEditorPorDia}
-                            disabled={!profesionalSeleccionado}
-                            className="bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="w-full bg-amber-600 text-white px-4 py-3 rounded-lg hover:bg-amber-700 font-medium"
                         >
-                            Configurar horarios por día
+                            Configurar mis horarios por día
                         </button>
-                    </div>
-                    {profesionales.length === 0 && !cargando && (
-                        <p className="text-sm text-amber-600 mt-2">
-                            ⚠️ No hay profesionales activos. Ve a la pestaña "Profesionales" para crear uno.
-                        </p>
-                    )}
-                </div>
-            )}
-            
-            {modoRestringido && profesionalId && (
-                <div className="mb-4">
-                    <button
-                        onClick={abrirEditorPorDia}
-                        className="w-full bg-amber-600 text-white px-4 py-3 rounded-lg hover:bg-amber-700 font-medium"
-                    >
-                        Configurar mis horarios por día
-                    </button>
-                    
-                    <div className="mt-4 p-3 bg-blue-50 text-blue-700 rounded-lg text-sm">
-                        <div className="flex items-center gap-2">
-                            <i className="icon-info"></i>
-                            <span>Podés configurar diferentes horarios para cada día de la semana</span>
+                        
+                        <div className="mt-4 p-3 bg-blue-50 text-blue-700 rounded-lg text-sm">
+                            <div className="flex items-center gap-2">
+                                <i className="icon-info"></i>
+                                <span>Podés configurar diferentes horarios para cada día de la semana</span>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )}
+
+                {/* NUEVO: PANEL DE DÍAS LIBRES */}
+                {profesionalSeleccionado && (
+                    <FechasLibresPanel 
+                        profesionalId={profesionalSeleccionado} 
+                        profesionales={profesionales} 
+                        onActualizar={cargarDatos} 
+                    />
+                )}
+            </div>
             
             {/* Modal para editor por día */}
             {mostrarEditorPorDia && profesionalSeleccionado && (
@@ -290,6 +303,103 @@ function ConfigPanel({ profesionalId, modoRestringido }) {
                     </div>
                 </div>
             )}
+        </div>
+    );
+}
+
+// ==========================================
+// NUEVO COMPONENTE: FECHAS LIBRES
+// ==========================================
+function FechasLibresPanel({ profesionalId, profesionales, onActualizar }) {
+    const [fechas, setFechas] = React.useState([]);
+    const [nuevaFecha, setNuevaFecha] = React.useState('');
+    const profesional = profesionales.find(p => p.id === profesionalId);
+
+    React.useEffect(() => {
+        if (profesional) {
+            setFechas(profesional.fechas_libres || []);
+        }
+    }, [profesionalId, profesional]);
+
+    const handleAgregar = async () => {
+        if (!nuevaFecha) return;
+        if (fechas.includes(nuevaFecha)) {
+            alert('Esta fecha ya está en la lista de días libres');
+            return;
+        }
+
+        const nuevasFechas = [...fechas, nuevaFecha].sort();
+        setFechas(nuevasFechas);
+        setNuevaFecha('');
+        await guardarFechas(nuevasFechas);
+    };
+
+    const handleEliminar = async (fechaAEliminar) => {
+        const nuevasFechas = fechas.filter(f => f !== fechaAEliminar);
+        setFechas(nuevasFechas);
+        await guardarFechas(nuevasFechas);
+    };
+
+    const guardarFechas = async (nuevasFechas) => {
+        try {
+            if (window.salonProfesionales && window.salonProfesionales.actualizar) {
+                await window.salonProfesionales.actualizar(profesionalId, { fechas_libres: nuevasFechas });
+                if (onActualizar) onActualizar(); // Recargar datos para mantener sincronizado
+            } else {
+                console.error("Función de actualizar no disponible.");
+            }
+        } catch (error) {
+            console.error("Error al guardar fechas libres:", error);
+            alert("Error al guardar la fecha. Verificá que exista la columna 'fechas_libres' tipo jsonb en la base de datos.");
+        }
+    };
+
+    return (
+        <div className="mt-6 p-4 bg-red-50 rounded-lg border border-red-100">
+            <h3 className="font-semibold text-lg text-red-800 mb-2 flex items-center gap-2">
+                🚫 Días Libres / Vacaciones de {profesional?.nombre}
+            </h3>
+            <p className="text-sm text-red-600 mb-4">
+                Agregá las fechas específicas en las que este profesional NO trabaja (vacaciones, turnos médicos, etc).
+            </p>
+
+            <div className="flex flex-wrap sm:flex-nowrap gap-2 mb-4">
+                <input
+                    type="date"
+                    value={nuevaFecha}
+                    onChange={(e) => setNuevaFecha(e.target.value)}
+                    className="border border-red-200 rounded-lg px-3 py-2 text-sm flex-1 focus:ring-red-500"
+                />
+                <button
+                    onClick={handleAgregar}
+                    disabled={!nuevaFecha}
+                    className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 font-medium w-full sm:w-auto"
+                >
+                    + Agregar fecha
+                </button>
+            </div>
+
+            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {fechas.length === 0 ? (
+                    <p className="text-sm text-gray-500 italic bg-white p-3 rounded text-center border">
+                        No hay días libres programados.
+                    </p>
+                ) : (
+                    fechas.map(fecha => (
+                        <div key={fecha} className="flex justify-between items-center bg-white p-2 rounded border border-red-100 shadow-sm">
+                            <span className="font-medium text-gray-700 ml-2">
+                                {window.formatFechaCompleta ? window.formatFechaCompleta(fecha) : fecha}
+                            </span>
+                            <button 
+                                onClick={() => handleEliminar(fecha)} 
+                                className="text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1 rounded transition"
+                            >
+                                🗑️ Quitar
+                            </button>
+                        </div>
+                    ))
+                )}
+            </div>
         </div>
     );
 }

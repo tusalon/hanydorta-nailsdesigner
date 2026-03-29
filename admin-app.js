@@ -601,7 +601,7 @@ function AdminApp() {
         }
     };
 
-    // 🔥 FUNCIÓN PARA CARGAR DISPONIBILIDAD DEL MES EN EL MODAL (CORREGIDA)
+   // 🔥 FUNCIÓN PARA CARGAR DISPONIBILIDAD DEL MES EN EL MODAL (CORREGIDA)
     const cargarDisponibilidadDelMes = async (fecha, profesionalId = null) => {
         if (!profesionalId && profesionalesList.length > 0) {
             profesionalId = profesionalesList[0]?.id;
@@ -615,7 +615,11 @@ function AdminApp() {
             
             const horarios = await window.salonConfig.getHorariosProfesional(profesionalId);
             const horasTrabajo = horarios.horas || [];
-            const diasTrabajo = horarios.dias || []; // 👈 Obtenemos los días de trabajo
+            const diasTrabajo = horarios.dias || []; 
+            
+            // 👈 NUEVO: Obtenemos las fechas libres del profesional desde la lista ya cargada
+            const profesionalObj = profesionalesList.find(p => p.id === profesionalId);
+            const fechasLibresPersonales = profesionalObj?.fechas_libres || [];
             
             if (horasTrabajo.length === 0) {
                 setDisponibilidadDias({});
@@ -651,18 +655,22 @@ function AdminApp() {
             
             const disponibilidad = {};
             const diasEnMes = ultimoDia.getDate();
-            const nombresDias = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado']; // 👈 Array auxiliar
+            const nombresDias = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado']; 
             
             for (let d = 1; d <= diasEnMes; d++) {
                 const fechaStr = `${year}-${(month + 1).toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`;
                 
-                // 👈 Determinamos qué día de la semana es la fecha que estamos evaluando
+                // 👈 NUEVO: Si la fecha está en la lista de vacaciones del profesional, tacharla automáticamente
+                if (fechasLibresPersonales.includes(fechaStr)) {
+                    disponibilidad[fechaStr] = false;
+                    continue; // Saltar al siguiente día del ciclo
+                }
+                
                 const fechaActual = new Date(year, month, d);
                 const diaSemana = nombresDias[fechaActual.getDay()]; 
                 
                 let tieneDisponibilidad = false;
                 
-                // 👈 Solo buscamos disponibilidad de horas si el profesional TRABAJA ese día
                 if (diasTrabajo.length === 0 || diasTrabajo.includes(diaSemana)) {
                     for (const horaIndice of horasTrabajo) {
                         const slotStr = indiceToHoraLegible(horaIndice);
@@ -744,20 +752,30 @@ function AdminApp() {
         
         const fechaStr = formatDate(date);
         
+        // 1. Validar Días cerrados globales
         if (diasCerradosFechas.includes(fechaStr)) {
             return false;
         }
         
+        // 2. Validar Fechas pasadas
         const hoy = getCurrentLocalDate();
         if (fechaStr < hoy) {
             return false;
         }
         
+        // 3. NUEVO: Validar Días Libres Personales del profesional
+        const profesional = profesionalesList.find(p => p.id === parseInt(nuevaReservaData.profesional_id));
+        if (profesional && profesional.fechas_libres && profesional.fechas_libres.includes(fechaStr)) {
+            return false; // El profesional está de vacaciones/libre este día
+        }
+        
+        // 4. Validar días de la semana en los que trabaja
         const diaSemana = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'][date.getDay()];
         if (diasLaborales.length > 0 && !diasLaborales.includes(diaSemana)) {
             return false;
         }
         
+        // 5. Validar que queden horarios libres
         return fechasConHorarios[fechaStr] || false;
     };
 
