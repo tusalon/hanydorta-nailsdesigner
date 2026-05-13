@@ -1,15 +1,13 @@
 // components/TimeSlots.js - Versión femenina con filtro de horarios permitidos por servicio
+// CORREGIDO: Si el día fue seleccionado, asume que es laborable
 
-function TimeSlots({ service, date, profesional, onTimeSelect, selectedTime }) {
+function TimeSlots({ service, date, profesional, onTimeSelect, selectedTime, horariosPorDia }) {
     const [slots, setSlots] = React.useState([]);
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState(null);
-    const [horariosPorDia, setHorariosPorDia] = React.useState({});
-    const [descansosPorDia, setDescansosPorDia] = React.useState({});
-    const [diaTrabaja, setDiaTrabaja] = React.useState(true);
-    const [verificacionCompleta, setVerificacionCompleta] = React.useState(false);
+    const [horariosLocales, setHorariosLocales] = React.useState({});
+    const [cargandoHorarios, setCargandoHorarios] = React.useState(true);
     const [maxAntelacionDias, setMaxAntelacionDias] = React.useState(30);
-    const [minAntelacionHoras, setMinAntelacionHoras] = React.useState(2);
 
     const indiceToHoraLegible = (indice) => {
         const horas = Math.floor(indice / 2);
@@ -25,9 +23,6 @@ function TimeSlots({ service, date, profesional, onTimeSelect, selectedTime }) {
                     console.log('⚙️ Configuración cargada en TimeSlots:', config);
                     if (config && config.max_antelacion_dias) {
                         setMaxAntelacionDias(config.max_antelacion_dias);
-                    }
-                    if (config && config.min_antelacion_horas !== undefined) {
-                        setMinAntelacionHoras(config.min_antelacion_horas);
                     }
                 }
             } catch (error) {
@@ -57,81 +52,61 @@ function TimeSlots({ service, date, profesional, onTimeSelect, selectedTime }) {
         return hours * 60 + minutes;
     };
 
-    const slotTieneDescanso = (slotStart, slotEnd, descansosDelDia = []) => {
-        return descansosDelDia.some(descanso => {
-            if (!descanso?.inicio || !descanso?.fin) return false;
-            const descansoStart = timeToMinutes(descanso.inicio);
-            const descansoEnd = timeToMinutes(descanso.fin);
-            return (slotStart < descansoEnd) && (slotEnd > descansoStart);
-        });
-    };
-
+    // Cargar horarios: prioridad a los que vienen del Calendar, si no, cargar desde API
     React.useEffect(() => {
-        if (!profesional) return;
+        if (!profesional || !profesional.id) return;
         
-        const cargarHorarios = async () => {
-            setVerificacionCompleta(false);
-            try {
-                console.log(`📅 Cargando horarios por día de ${profesional.nombre}...`);
-                const horarios = await window.salonConfig.getHorariosPorDia(profesional.id);
-                const descansos = window.salonConfig.getDescansosPorDia ?
-                    await window.salonConfig.getDescansosPorDia(profesional.id) :
-                    {};
-                console.log(`✅ Horarios por día de ${profesional.nombre}:`, horarios);
-                setHorariosPorDia(horarios);
-                setDescansosPorDia(descansos);
-                
-                const tieneHorarios = Object.keys(horarios).length > 0;
-                if (!tieneHorarios) {
-                    console.log('⚠️ No hay horarios configurados para este profesional');
-                }
-            } catch (error) {
-                console.error('Error cargando horarios:', error);
-                setHorariosPorDia({});
-            }
-        };
-        
-        cargarHorarios();
-    }, [profesional]);
-
-    React.useEffect(() => {
-        if (!profesional || !date) {
-            setVerificacionCompleta(false);
-            return;
+        if (horariosPorDia && Object.keys(horariosPorDia).length > 0) {
+            console.log('✅ Usando horariosPorDia recibidos del Calendar:', horariosPorDia);
+            setHorariosLocales(horariosPorDia);
+            setCargandoHorarios(false);
+        } else {
+            console.log('📅 Cargando horarios por día desde API...');
+            setCargandoHorarios(true);
+            
+            window.salonConfig.getHorariosProfesional(profesional.id)
+                .then(horarios => {
+                    console.log('✅ Horarios cargados desde API:', horarios.horariosPorDia);
+                    setHorariosLocales(horarios.horariosPorDia || {});
+                    setCargandoHorarios(false);
+                })
+                .catch(error => {
+                    console.error('Error cargando horarios:', error);
+                    setHorariosLocales({});
+                    setCargandoHorarios(false);
+                });
         }
+    }, [profesional, horariosPorDia]);
 
-        console.log('🔍 Verificando disponibilidad para:', {
-            profesional: profesional.nombre,
-            fecha: date,
-            horariosPorDia
-        });
-
+    // Verificar si el día tiene horarios configurados
+    const verificarDiaTrabaja = React.useCallback(() => {
+        if (!date || Object.keys(horariosLocales).length === 0) return true; // Asumir que sí trabaja si no hay datos aún
+        
         const [año, mes, día] = date.split('-').map(Number);
         const fechaLocal = new Date(año, mes - 1, día);
-        
         const diasSemana = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
         const diaSemana = diasSemana[fechaLocal.getDay()];
         
-        const horariosDelDia = horariosPorDia[diaSemana] || [];
-        const trabaja = horariosDelDia.length > 0;
-        
-        console.log(`🎯 ¿${profesional.nombre} trabaja el ${diaSemana}?`, trabaja);
-        if (!trabaja && horariosDelDia.length === 0) {
-            console.log(`⚠️ No hay horarios configurados para ${diaSemana}`);
-        }
-        
-        setDiaTrabaja(trabaja);
-        setVerificacionCompleta(true);
-        
-    }, [profesional, horariosPorDia, date]);
+        const horariosDelDia = horariosLocales[diaSemana] || [];
+        return horariosDelDia.length > 0;
+    }, [date, horariosLocales]);
 
+    // Cargar slots disponibles
     React.useEffect(() => {
-        if (!service || !date || !profesional || !verificacionCompleta) return;
+        if (!service || !date || !profesional || cargandoHorarios) return;
+
+        const diaTrabaja = verificarDiaTrabaja();
         
-        if (!diaTrabaja) {
+        // IMPORTANTE: Si el día fue seleccionado del calendario, confiamos en que es válido
+        // Solo mostramos mensaje de "no trabaja" si estamos SEGUROS (datos ya cargados)
+        if (!diaTrabaja && Object.keys(horariosLocales).length > 0) {
+            console.log('⚠️ Confirmado: el profesional NO trabaja este día');
             setSlots([]);
             return;
         }
+        
+        // Si no sabemos aún, mostramos carga
+        if (Object.keys(horariosLocales).length === 0) return;
 
         const loadSlots = async () => {
             setLoading(true);
@@ -156,10 +131,9 @@ function TimeSlots({ service, date, profesional, onTimeSelect, selectedTime }) {
                 const diasSemana = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
                 const diaSemana = diasSemana[fechaLocal.getDay()];
                 
-                const indicesDelDia = horariosPorDia[diaSemana] || [];
-                const descansosDelDia = descansosPorDia[diaSemana] || [];
+                const indicesDelDia = horariosLocales[diaSemana] || [];
                 
-                if (indicesDelDia.length === 0) {
+                if (indicesDelDia.length === 0 && Object.keys(horariosLocales).length > 0) {
                     console.log(`⚠️ No hay horas configuradas para ${diaSemana}`);
                     setSlots([]);
                     setLoading(false);
@@ -169,7 +143,7 @@ function TimeSlots({ service, date, profesional, onTimeSelect, selectedTime }) {
                 // Slots base (todos los horarios del profesional para ese día)
                 let baseSlots = indicesDelDia.map(indice => indiceToHoraLegible(indice));
                 
-                // 🔥 FILTRO POR HORARIOS PERMITIDOS DEL SERVICIO (si existen)
+                // FILTRO POR HORARIOS PERMITIDOS DEL SERVICIO (si existen)
                 if (service.horarios_permitidos && service.horarios_permitidos.length > 0) {
                     baseSlots = baseSlots.filter(slot => service.horarios_permitidos.includes(slot));
                     console.log(`📋 Slots filtrados por horarios permitidos del servicio:`, baseSlots);
@@ -184,7 +158,7 @@ function TimeSlots({ service, date, profesional, onTimeSelect, selectedTime }) {
                 const horaActual = ahora.getHours();
                 const minutosActuales = ahora.getMinutes();
                 const totalMinutosActual = horaActual * 60 + minutosActuales;
-                const minAllowedMinutes = totalMinutosActual + (minAntelacionHoras * 60);
+                const minAllowedMinutes = totalMinutosActual + 120;
                 
                 console.log('🕐 Hora actual:', `${horaActual}:${minutosActuales}`);
                 console.log('⏱️ Hora mínima permitida (actual + 2h):', 
@@ -199,10 +173,6 @@ function TimeSlots({ service, date, profesional, onTimeSelect, selectedTime }) {
 
                     if (esHoy && slotStart < minAllowedMinutes) {
                         console.log(`⏰ Slot ${slotStartStr} es menor a hora mínima - EXCLUIDO`);
-                        return false;
-                    }
-
-                    if (slotTieneDescanso(slotStart, slotEnd, descansosDelDia)) {
                         return false;
                     }
 
@@ -233,16 +203,20 @@ function TimeSlots({ service, date, profesional, onTimeSelect, selectedTime }) {
         };
 
         loadSlots();
-    }, [service, date, profesional, horariosPorDia, descansosPorDia, diaTrabaja, verificacionCompleta, maxAntelacionDias, minAntelacionHoras]);
+    }, [service, date, profesional, horariosLocales, cargandoHorarios, maxAntelacionDias, verificarDiaTrabaja]);
 
     if (!service || !date || !profesional) return null;
 
-    if (!verificacionCompleta) {
+    const diaTrabaja = verificarDiaTrabaja();
+    const horariosCargados = Object.keys(horariosLocales).length > 0;
+
+    // Si todavía estamos cargando y no tenemos certeza, mostrar carga
+    if (cargandoHorarios && !horariosCargados) {
         return (
             <div className="space-y-4 animate-fade-in">
                 <h2 className="text-lg font-semibold text-pink-700 flex items-center gap-2">
                     <span className="text-2xl">⏰</span>
-                    4. Elegí un horario con {profesional.nombre}
+                    4. Cargando horarios...
                 </h2>
                 <div className="flex justify-center py-8">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-pink-500"></div>
@@ -251,8 +225,9 @@ function TimeSlots({ service, date, profesional, onTimeSelect, selectedTime }) {
         );
     }
 
-    if (!diaTrabaja) {
-        const [año, mes, día] = date.split('-').map(Number);
+    // Solo mostrar "no trabaja" si estamos 100% seguros (datos cargados y no hay horarios)
+    if (!diaTrabaja && horariosCargados) {
+        const [año, mes, día] = date ? date.split('-').map(Number) : [0, 0, 0];
         const fechaLocal = new Date(año, mes - 1, día);
         const diasSemana = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
         const diaSemana = diasSemana[fechaLocal.getDay()];
@@ -316,8 +291,8 @@ function TimeSlots({ service, date, profesional, onTimeSelect, selectedTime }) {
                         <div className="text-sm text-pink-600 bg-pink-50 p-3 rounded-lg flex items-center gap-2 border border-pink-200">
                             <span className="text-pink-500">⏰</span>
                             <span>
-                                Solo se muestran horarios con al menos {minAntelacionHoras} horas de anticipación 
-                                (hora actual + {minAntelacionHoras}h)
+                                Solo se muestran horarios con al menos 2 horas de anticipación 
+                                (hora actual + 2h)
                             </span>
                         </div>
                     )}
