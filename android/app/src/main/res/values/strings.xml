@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Hany Dorta Nails Designer</string>
+    <string name="title_activity_main">Hany Dorta Nails Designer</string>
+    <string name="package_name">com.tusalon.hanydortanailsdesigner</string>
+    <string name="custom_url_scheme">com.tusalon.hanydortanailsdesigner</string>
+</resources>

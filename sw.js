@@ -1,6 +1,6 @@
 // sw.js - Service Worker para Hany Dorta Nails Designer
 
-const CACHE_NAME = 'hanydorta-nailsdesigner-v29';
+const CACHE_NAME = 'hanydorta-nailsdesigner-v47';
 const urlsToCache = [
   '/hanydorta-nailsdesigner/',
   '/hanydorta-nailsdesigner/index.html',
@@ -17,7 +17,14 @@ const urlsToCache = [
   '/hanydorta-nailsdesigner/icons/icon-152x152.png',
   '/hanydorta-nailsdesigner/icons/icon-192x192.png',
   '/hanydorta-nailsdesigner/icons/icon-384x384.png',
-  '/hanydorta-nailsdesigner/icons/icon-512x512.png'
+  '/hanydorta-nailsdesigner/icons/icon-512x512.png',
+  '/hanydorta-nailsdesigner/vendor/react.production.min.js',
+  '/hanydorta-nailsdesigner/vendor/react-dom.production.min.js',
+  '/hanydorta-nailsdesigner/vendor/babel.min.js',
+  '/hanydorta-nailsdesigner/vendor/bcrypt.min.js',
+  '/hanydorta-nailsdesigner/vendor/tailwind-browser.js',
+  '/hanydorta-nailsdesigner/vendor/lucide/lucide.css',
+  '/hanydorta-nailsdesigner/vendor/lucide/lucide.woff2'
 ];
 
 // ============================================
