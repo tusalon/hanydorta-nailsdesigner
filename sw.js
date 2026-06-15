@@ -1,6 +1,6 @@
 // sw.js - Service Worker para Hany Dorta Nails Designer
 
-const CACHE_NAME = 'hanydorta-nailsdesigner-v49';
+const CACHE_NAME = 'hanydorta-nailsdesigner-v56';
 const urlsToCache = [
   '/hanydorta-nailsdesigner/',
   '/hanydorta-nailsdesigner/index.html',
